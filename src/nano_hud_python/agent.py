@@ -37,9 +37,10 @@ class Agent(BaseModel):
     input: list[ResponseInputItemParam]
 
     def __init__(self, model: str, *, input: list[ResponseInputItemParam] | None = None):
-        super().__init__()
-        self.model = model
-        self.input = input or []
+        super().__init__(
+            model=model,
+            input=input or [],
+        )
 
     async def run(self, environment: Environment):
         """Run the agent."""

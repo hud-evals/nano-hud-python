@@ -33,9 +33,11 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
     # tool expose settings
     allowed_tools: list[str] | None
 
+
+
     # Runtime attributes (not part of initialization)
-    exit_stack: AsyncExitStack | None = None
-    session: ClientSession | None = None
+    _exit_stack: AsyncExitStack | None = None
+    _session: ClientSession | None = None
 
     def __init__(
         self,
@@ -139,25 +141,25 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
 
     async def initialize(self):
         """Initialize and start the Docker container."""
-        self.exit_stack = AsyncExitStack()
-        stdio_transport = await self.exit_stack.enter_async_context(
+        self._exit_stack = AsyncExitStack()
+        stdio_transport = await self._exit_stack.enter_async_context(
             stdio_client(StdioServerParameters(command="docker", args=self._docker_run_args(), env=None)),
         )
         stdio, write = stdio_transport
-        self.session = await self.exit_stack.enter_async_context(ClientSession(stdio, write))
+        self._session = await self._exit_stack.enter_async_context(ClientSession(stdio, write))
 
         # Initialize
-        _ = await self.session.initialize()
+        _ = await self._session.initialize()
 
         logger.info(f"Docker container {self.container_name} started successfully")
 
         # now attempt to connect to mcp server running inside
-        self.exit_stack = AsyncExitStack()
+        self._exit_stack = AsyncExitStack()
 
     async def cleanup(self):
         """Clean up resources and handle Docker container based on delete_mode"""
-        assert self.exit_stack is not None
-        await self.exit_stack.aclose()
+        assert self._exit_stack is not None
+        await self._exit_stack.aclose()
         if self.container_name:
             if self.delete_mode == "delete":
                 # Remove the container completely
@@ -191,12 +193,12 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
                 pass
 
     async def list_all_tools(self) -> list[Tool]:
-        assert self.session is not None
+        assert self._session is not None
         # list all tools
         all_tools: list[Tool] = []
         cursor = None
         while True:
-            result: ListToolsResult = await self.session.list_tools(cursor)
+            result: ListToolsResult = await self._session.list_tools(cursor)
             all_tools.extend(result.tools)
             if result.nextCursor is None:
                 break
@@ -221,8 +223,8 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
 
     async def call_tool(self, tool_name: str, tool_args: dict[str, Any]) -> CallToolResult:
         """Call a tool available from the Docker container."""
-        assert self.session is not None
-        return await self.session.call_tool(tool_name, tool_args)
+        assert self._session is not None
+        return await self._session.call_tool(tool_name, tool_args)
 
     async def setup(self) -> CallToolResult:
         """Setup the Docker container."""
