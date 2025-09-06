@@ -1,7 +1,9 @@
 import json
+import logging
 
 import litellm
 from litellm import GenericResponseOutputItem, OutputFunctionToolCall, ResponsesAPIResponse
+from mcp.types import ContentBlock, ImageContent, TextContent
 from openai.types.responses import (
     FunctionToolParam,
     ResponseCodeInterpreterToolCall,
@@ -17,7 +19,9 @@ from openai.types.responses import (
     ResponseReasoningItem,
     ResponseReasoningItemParam,
 )
-from openai.types.responses.response_input_item_param import FunctionCallOutput
+from openai.types.responses.response_input_image_param import ResponseInputImageParam
+from openai.types.responses.response_input_item_param import FunctionCallOutput, Message
+from openai.types.responses.response_input_text_param import ResponseInputTextParam
 from openai.types.responses.response_output_item import (
     ImageGenerationCall,
     LocalShellCall,
@@ -27,7 +31,31 @@ from openai.types.responses.response_output_item import (
 )
 from pydantic import BaseModel
 
+from nano_hud_python.json_schema import init_strict_json_schema
+
 from .environment import Environment
+
+logger = logging.getLogger(__name__)
+
+
+def transform_content(content: list[ContentBlock]) -> list[Message]:
+    messages: list[Message] = []
+    for block in content:
+        match block:
+            case TextContent():
+                messages.append(
+                    Message(role="user", content=[ResponseInputTextParam(type="input_text", text=block.text)])
+                )
+            case ImageContent():
+                messages.append(
+                    Message(
+                        role="user",
+                        content=[ResponseInputImageParam(type="input_image", detail="high", image_url=block.data)],
+                    )
+                )
+            case _:
+                raise NotImplementedError(f"Unknown content block type: {block}")
+    return messages
 
 
 class Agent(BaseModel):
@@ -36,20 +64,21 @@ class Agent(BaseModel):
     model: str
     input: list[ResponseInputItemParam]
 
-    def __init__(self, model: str, *, input: list[ResponseInputItemParam] | None = None):
+    def __init__(self, model: str, *, content: list[ContentBlock] | None = None):
         super().__init__(
             model=model,
-            input=input or [],
+            input=transform_content(content) if content else [],
         )
 
     async def run(self, environment: Environment):
         """Run the agent."""
         mcp_tools = await environment.list_tools()
+        logger.info(f"MCP tools: {mcp_tools}")
         oai_tools = [
             FunctionToolParam(
                 name=tool.name,
                 description=tool.description,
-                parameters=tool.inputSchema,
+                parameters=init_strict_json_schema(tool.inputSchema).model_dump(exclude_none=True),
                 strict=True,
                 type="function",
             )

@@ -29,11 +29,11 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
     delete_mode: Literal["delete", "stop", "leave"]
     # setup/evaluate tool settings
     setup_tool: str | None
+    setup_tool_args: dict[str, Any] | None
     evaluate_tool: str | None
+    evaluate_tool_args: dict[str, Any] | None
     # tool expose settings
     allowed_tools: list[str] | None
-
-
 
     # Runtime attributes (not part of initialization)
     _exit_stack: AsyncExitStack | None = None
@@ -57,7 +57,9 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
         delete_mode: Literal["delete", "stop", "leave"] = "delete",
         # auto setup/evaluate tool settings
         setup_tool: str | None = None,
+        setup_tool_args: dict[str, Any] | None = None,
         evaluate_tool: str | None = None,
+        evaluate_tool_args: dict[str, Any] | None = None,
         # tool expose settings
         allowed_tools: list[str] | None = None,
     ):
@@ -92,7 +94,9 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
             container_name=container_name or f"nano-hud-python-{uuid4()}",
             delete_mode=delete_mode,
             setup_tool=setup_tool,
+            setup_tool_args=setup_tool_args,
             evaluate_tool=evaluate_tool,
+            evaluate_tool_args=evaluate_tool_args,
             allowed_tools=allowed_tools,
         )
 
@@ -142,19 +146,14 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
     async def initialize(self):
         """Initialize and start the Docker container."""
         self._exit_stack = AsyncExitStack()
-        stdio_transport = await self._exit_stack.enter_async_context(
+        read, write = await self._exit_stack.enter_async_context(
             stdio_client(StdioServerParameters(command="docker", args=self._docker_run_args(), env=None)),
         )
-        stdio, write = stdio_transport
-        self._session = await self._exit_stack.enter_async_context(ClientSession(stdio, write))
+        self._session = await self._exit_stack.enter_async_context(ClientSession(read, write))
 
         # Initialize
-        _ = await self._session.initialize()
-
-        logger.info(f"Docker container {self.container_name} started successfully")
-
-        # now attempt to connect to mcp server running inside
-        self._exit_stack = AsyncExitStack()
+        result = await self._session.initialize()
+        logger.debug(f"Docker container {self.container_name} initialized successfully: {result}")
 
     async def cleanup(self):
         """Clean up resources and handle Docker container based on delete_mode"""
@@ -229,12 +228,12 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
     async def setup(self) -> CallToolResult:
         """Setup the Docker container."""
         assert self.setup_tool is not None
-        return await self.call_tool(self.setup_tool, {})
+        return await self.call_tool(self.setup_tool, self.setup_tool_args or {})
 
     async def evaluate(self) -> CallToolResult:
         """Evaluate the Docker container."""
         assert self.evaluate_tool is not None
-        return await self.call_tool(self.evaluate_tool, {})
+        return await self.call_tool(self.evaluate_tool, self.evaluate_tool_args or {})
 
     @override
     async def __aenter__(self):
