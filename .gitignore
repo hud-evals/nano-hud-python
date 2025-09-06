@@ -1,0 +1,47 @@
+.venv
+.vscode
+venv
+.env
+__pycache__
+*.pyc
+.pytest_cache
+dist/
+build/
+*.egg-info/
+uv.lock
+
+# Media files
+*.jpg
+*.jpeg
+*.bmp
+*.tiff
+*.ico
+
+# DS-Store
+.DS_Store
+
+# Test files
+/*.ipynb
+test.json
+TODO.md
+
+.coverage
+
+*.log
+
+/ref/
+
+.cursor/
+
+/dev/
+
+.claude
+CLAUDE.md
+
+*.csv
+
+# RL
+wandb/
+outputs/
+
+test/
