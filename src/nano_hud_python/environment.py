@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
-from typing import Any, Literal
+from typing import Any, Literal, override
 from uuid import uuid4
 
 from mcp import ClientSession, ListToolsResult, StdioServerParameters, stdio_client
@@ -31,7 +31,7 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
     setup_tool: str | None
     evaluate_tool: str | None
     # tool expose settings
-    include_tools: list[str] | None
+    allowed_tools: list[str] | None
 
     # Runtime attributes (not part of initialization)
     exit_stack: AsyncExitStack | None = None
@@ -53,11 +53,11 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
         container_name: str | None = None,
         # delete mode
         delete_mode: Literal["delete", "stop", "leave"] = "delete",
-        # auto setup/evaluate tool settings0
+        # auto setup/evaluate tool settings
         setup_tool: str | None = None,
         evaluate_tool: str | None = None,
         # tool expose settings
-        include_tools: list[str] | None = None,
+        allowed_tools: list[str] | None = None,
     ):
         """Initialize the Docker environment with specified parameters.
 
@@ -75,7 +75,7 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
             delete_mode: Delete mode (default: "delete")
             setup_tool: Name of the setup tool (default: None)
             evaluate_tool: Name of the evaluate tool (default: None)
-            include_tools: List of tools to include (default: None)
+            allowed_tools: List of tools to include (default: None)
         """
         super().__init__(
             image=image,
@@ -91,7 +91,7 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
             delete_mode=delete_mode,
             setup_tool=setup_tool,
             evaluate_tool=evaluate_tool,
-            include_tools=include_tools,
+            allowed_tools=allowed_tools,
         )
 
     def _docker_run_args(self) -> list[str]:
@@ -147,7 +147,7 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
         self.session = await self.exit_stack.enter_async_context(ClientSession(stdio, write))
 
         # Initialize
-        await self.session.initialize()
+        _ = await self.session.initialize()
 
         logger.info(f"Docker container {self.container_name} started successfully")
 
@@ -170,7 +170,7 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
-                    await proc.communicate()
+                    _ = await proc.communicate()
                 except Exception as e:
                     logger.error(f"Failed to remove container {self.container_name}: {e}")
             elif self.delete_mode == "stop":
@@ -183,20 +183,17 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
-                    await proc.communicate()
+                    _ = await proc.communicate()
                 except Exception as e:
                     logger.error(f"Failed to stop container {self.container_name}: {e}")
             elif self.delete_mode == "leave":
                 # Do nothing - leave the container running
                 pass
 
-    async def list_tools(self) -> list[Tool]:
-        """List tools available from the Docker container, filtered by include_tools, and excluding setup_tool and evaluate_tool"""
+    async def list_all_tools(self) -> list[Tool]:
         assert self.session is not None
-
         # list all tools
         all_tools: list[Tool] = []
-        
         cursor = None
         while True:
             result: ListToolsResult = await self.session.list_tools(cursor)
@@ -205,14 +202,18 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
                 break
             cursor = result.nextCursor
 
-        # filter tools
+        return all_tools
+
+    async def list_tools(self) -> list[Tool]:
+        """List tools available from the Docker container, filtered by allowed_tools, and excluding setup_tool and evaluate_tool"""
+        all_tools = await self.list_all_tools()
         filtered_tools: list[Tool] = []
         for tool in all_tools:
             # exclude setup and evaluate tools
             if tool.name in [self.setup_tool, self.evaluate_tool]:
                 continue
-            # exclude tools not in include_tools
-            if self.include_tools is not None and tool.name not in self.include_tools:
+            # exclude tools not in allowed_tools (if specified)
+            if self.allowed_tools is not None and tool.name not in self.allowed_tools:
                 continue
             filtered_tools.append(tool)
 
@@ -233,11 +234,13 @@ class Environment(BaseModel, AbstractAsyncContextManager["Environment"]):
         assert self.evaluate_tool is not None
         return await self.call_tool(self.evaluate_tool, {})
 
+    @override
     async def __aenter__(self):
         """Async context manager entry."""
         await self.initialize()
         return self
 
+    @override
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any):
         """Async context manager exit."""
         await self.cleanup()

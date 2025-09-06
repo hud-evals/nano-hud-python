@@ -4,11 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = [
-    "litellm>=1.76.2",
-    "mcp[cli]>=1.13.1",
-    "pydantic>=2.11.7",
-]
+dependencies = ["litellm>=1.76.2", "mcp[cli]>=1.13.1", "pydantic>=2.11.7"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0.0", "ruff==0.11.2", "pre-commit>=3.5.0"]
@@ -39,6 +35,12 @@ quote-style = "double"
 indent-style = "space"
 line-ending = "auto"
 
-[tool.pyright]
+[tool.basedpyright]
 pythonVersion = "3.13"
-typeCheckingMode = "strict"
+typeCheckingMode = "recommended"
+reportUnsafeMultipleInheritance = "none"
+reportUnknownMemberType = "none"
+reportAny = "none"
+reportExplicitAny = "none"
+reportUnknownVariableType = "none"
+allowedUntypedLibraries = ["litellm"]
